@@ -54,24 +54,32 @@ var exports = __webpack_exports__;
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.deactivate = exports.activate = void 0;
+// The module 'vscode' contains the VS Code extensibility API
+// Import the module and reference it with the alias vscode in your code below
 const vscode = __webpack_require__(1);
 const fs = __webpack_require__(2);
-const { spawn } = __webpack_require__(3);
-const runJava = spawn('java', ['-cp', 'extension1/src', 'caches.SaveChanges', 'Java started']);
+const node_child_process_1 = __webpack_require__(3);
+const runJava = (0, node_child_process_1.spawn)('java', ['-jar',
+    "--add-opens", "java.base/java.nio=ALL-UNNAMED",
+    "--add-opens", "java.base/sun.nio.ch=ALL-UNNAMED",
+    "--enable-preview",
+    '/home/alex/Programming/caches/extension/src/persistent-ide-caches.jar',
+    vscode.workspace.workspaceFolders?.at(0)?.uri.path.toString() ?? "error",
+]);
 const oldFiles = new Map();
 const newFiles = new Map();
+// runJava.stdout.on('data', (data: string) => {
+// 	console.log(`stdout: ${data}`);
+// });
+runJava.stderr.on('data', (data) => {
+    console.error(`stderr: ${data}`);
+});
+runJava.on('close', (code) => {
+    console.log(`child process exited with code ${code}`);
+});
 function pushEvents(events) {
     console.log(JSON.stringify(events));
-    runJava.stdin.write(JSON.stringify(events) + '\r\n');
-    runJava.stdout.on('data', (data) => {
-        console.log(`stdout: ${data}`);
-    });
-    runJava.stderr.on('data', (data) => {
-        console.error(`stderr: ${data}`);
-    });
-    runJava.on('close', (code) => {
-        console.log(`child process exited with code ${code}`);
-    });
+    runJava.stdin.write("changes\n" + JSON.stringify(events));
 }
 function getWebviewContent() {
     return `<html>
@@ -108,59 +116,49 @@ function activate(context) {
     panel.webview.onDidReceiveMessage(message => {
         switch (message.command) {
             case 'search':
-                console.log(message.text);
-                vscode.window.showErrorMessage(message.text);
+                runJava.stdout.once('data', (data) => vscode.window.showErrorMessage(`${data}`));
+                runJava.stdin.write("search\n" + message.text);
                 return;
         }
     }, undefined, context.subscriptions);
-    // Use the console to output diagnostic information (console.log) and errors (console.error)
-    // This line of code will only be executed once when your extension is activated
-    console.log('Congratulations, your extension "extension1" is now active!');
     const workspace = vscode.workspace;
     console.log(workspace);
-    vscode.commands.registerCommand('editor.action.nextMatchFindAction', (e) => {
-        console.log(e);
-    });
-    vscode.commands.registerCommand('type', (args) => {
-        if (findWidgetActive) {
-            console.log(args);
-        }
-        else {
-            vscode.commands.executeCommand('default:type', args);
-        }
-    });
     if (workspace !== undefined) {
         let modifyChanges = [];
         let addChanges = [];
         let deleteChanges = [];
         let renameChanges = [];
         let intervalId = setInterval(() => {
-            newFiles.forEach((key, value) => {
-                modifyChanges.push(JSON.stringify({ uri: key, oldText: oldFiles.get(key), newText: value }));
+            modifyChanges.length = 0;
+            addChanges.length = 0;
+            deleteChanges.length = 0;
+            renameChanges.length = 0;
+            newFiles.forEach((value, key) => {
+                modifyChanges.push({ uri: key, oldText: oldFiles.get(key), newText: value });
             });
-            const events = { timestamp: Date.now(), modifyChanges: modifyChanges, addChanges: addChanges, deleteChanges: deleteChanges, renameChanges: renameChanges };
-            pushEvents(events);
             newFiles.clear();
-            modifyChanges = [];
-            addChanges = [];
-            deleteChanges = [];
-            renameChanges = [];
+            const events = { timestamp: Date.now(), modifyChanges: modifyChanges, addChanges: addChanges, deleteChanges: deleteChanges, renameChanges: renameChanges };
+            console.log;
+            if (events.modifyChanges.length > 0) {
+                pushEvents(events);
+            }
         }, 5000);
         workspace.onDidCreateFiles(event => {
             console.log("create files");
             event.files.forEach(file => {
-                addChanges.push(JSON.stringify({ timestamp: Date.now(), uri: file.path, text: fs.readFileSync(file.path) }));
+                addChanges.push({ uri: file.path, text: fs.readFileSync(file.path).toString() });
             });
+            123;
         });
         workspace.onDidDeleteFiles(event => {
             console.log("delete files");
             event.files.forEach(file => {
-                deleteChanges.push(JSON.stringify({ timestamp: Date.now(), uri: file.path }));
+                deleteChanges.push({ uri: file.path, text: oldFiles.get(file.path) });
             });
         });
         workspace.onDidChangeTextDocument(event => {
             console.log("modify files");
-            const uri = event.document.uri.toString();
+            const uri = event.document.uri.path;
             if (!newFiles.has(uri)) {
                 oldFiles.set(uri, event.document.getText());
             }
@@ -169,20 +167,21 @@ function activate(context) {
         workspace.onDidRenameFiles(event => {
             console.log("rename files");
             event.files.forEach(file => {
-                renameChanges.push(JSON.stringify({ timestamp: Date.now(), oldUri: file.oldUri, newUri: file.newUri }));
+                renameChanges.push({ oldUri: file.oldUri.path, newUri: file.newUri.path });
             });
         });
     }
-    // The command has been defined in the package.json file
-    // Now provide the implementation of the command with registerCommand
-    // The commandId parameter must match the command field in package.json
-    let disposable = vscode.commands.registerCommand('extension1.helloWorld', () => {
-        // The code you place here will be executed every time your command is executed
-        // Display a message box to the user
-        vscode.window.showInformationMessage('Hello World from extension1!');
-    });
+    ;
 }
 exports.activate = activate;
+// The command has been defined in the package.json file
+// Now provide the implementation of the command with registerCommand
+// The commandId parameter must match the command field in package.json
+let disposable = vscode.commands.registerCommand('extension1.helloWorld', () => {
+    // The code you place here will be executed every time your command is executed
+    // Display a message box to the user
+    vscode.window.showInformationMessage('Hello World from extension1!');
+});
 // This method is called when your extension is deactivated
 function deactivate() {
 }
