@@ -34,7 +34,8 @@ function pushEvents(events: object) {
 	runJava.stdin.write("changes\n" + JSON.stringify(events));
 }
 
-function getWebviewContent() {
+
+function getWebviewContent(req: string, text: string) {
 	return `<html>
 	<head>
 		<title>Alert Box</title>
@@ -50,14 +51,17 @@ function getWebviewContent() {
 		</script>
 	</head>
 	<body>
-	<input type="text" id="search" /><br />
-	<input type="button" value="Click Here" onclick="onClick()" />
+	<input type="text" id="search" style="font-size:50px"/><br />
+	<input type="button" value="Search" onclick="onClick()" style="font-size:50px" />
+	</body>
+	<body>
+	<p style="font-size:50px">${req}</p>
+	<p style="font-size:50px">${text}</p>
 	</body>
 	</html>
 	`;
 }
 
-let findWidgetActive = false;
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -71,12 +75,13 @@ export function activate(context: vscode.ExtensionContext) {
 
 	);
 
-	panel.webview.html = getWebviewContent();
+	panel.webview.html = getWebviewContent("", "");
 
 	panel.webview.onDidReceiveMessage(message => {
 		switch (message.command) {
 			case 'search':
-				runJava.stdout.once('data', (data: string) => vscode.window.showErrorMessage(`${data}`));
+				runJava.stdout.once('data', (data: string) =>
+					panel.webview.html = getWebviewContent("Results for \"" + message.text + "\"", data.slice(1, -2)));
 				runJava.stdin.write("search\n" + message.text);
 				return;
 		}
@@ -116,7 +121,7 @@ export function activate(context: vscode.ExtensionContext) {
 			console.log("create files");
 			event.files.forEach(file => {
 				addChanges.push({ uri: file.path, text: fs.readFileSync(file.path).toString() });
-			});123
+			}); 123
 		});
 
 		workspace.onDidDeleteFiles(event => {
@@ -147,7 +152,7 @@ export function activate(context: vscode.ExtensionContext) {
 // The command has been defined in the package.json file
 // Now provide the implementation of the command with registerCommand
 // The commandId parameter must match the command field in package.json
-let disposable = vscode.commands.registerCommand('extension1.helloWorld', () => {
+let disposable = vscode.commands.registerCommand('extension1.startSearch', () => {
 	// The code you place here will be executed every time your command is executed
 	// Display a message box to the user
 	vscode.window.showInformationMessage('Hello World from extension1!');

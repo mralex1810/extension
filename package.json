@@ -10,14 +10,14 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:extension1.helloWorld"
+    "onCommand:extension1.startSearch"
   ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "extension1.helloWorld",
-        "title": "Hello World"
+        "command": "extension1.startSearch",
+        "title": "Start search"
       }
     ]
   },

@@ -81,7 +81,7 @@ function pushEvents(events) {
     console.log(JSON.stringify(events));
     runJava.stdin.write("changes\n" + JSON.stringify(events));
 }
-function getWebviewContent() {
+function getWebviewContent(req, text) {
     return `<html>
 	<head>
 		<title>Alert Box</title>
@@ -97,13 +97,16 @@ function getWebviewContent() {
 		</script>
 	</head>
 	<body>
-	<input type="text" id="search" /><br />
-	<input type="button" value="Click Here" onclick="onClick()" />
+	<input type="text" id="search" style="font-size:50px"/><br />
+	<input type="button" value="Search" onclick="onClick()" style="font-size:50px" />
+	</body>
+	<body>
+	<p style="font-size:50px">${req}</p>
+	<p style="font-size:50px">${text}</p>
 	</body>
 	</html>
 	`;
 }
-let findWidgetActive = false;
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 function activate(context) {
@@ -112,11 +115,11 @@ function activate(context) {
     vscode.ViewColumn.Two, // Editor column to show the new webview panel in.
     { enableScripts: true } // Webview options. More on these later.
     );
-    panel.webview.html = getWebviewContent();
+    panel.webview.html = getWebviewContent("", "");
     panel.webview.onDidReceiveMessage(message => {
         switch (message.command) {
             case 'search':
-                runJava.stdout.once('data', (data) => vscode.window.showErrorMessage(`${data}`));
+                runJava.stdout.once('data', (data) => panel.webview.html = getWebviewContent("Results for \"" + message.text + "\"", data.slice(1, -2)));
                 runJava.stdin.write("search\n" + message.text);
                 return;
         }
@@ -177,7 +180,7 @@ exports.activate = activate;
 // The command has been defined in the package.json file
 // Now provide the implementation of the command with registerCommand
 // The commandId parameter must match the command field in package.json
-let disposable = vscode.commands.registerCommand('extension1.helloWorld', () => {
+let disposable = vscode.commands.registerCommand('extension1.startSearch', () => {
     // The code you place here will be executed every time your command is executed
     // Display a message box to the user
     vscode.window.showInformationMessage('Hello World from extension1!');
