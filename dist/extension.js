@@ -19,6 +19,12 @@ module.exports = require("fs");
 
 module.exports = require("node:child_process");
 
+/***/ }),
+/* 4 */
+/***/ ((module) => {
+
+module.exports = require("path");
+
 /***/ })
 /******/ 	]);
 /************************************************************************/
@@ -59,11 +65,14 @@ exports.deactivate = exports.activate = void 0;
 const vscode = __webpack_require__(1);
 const fs = __webpack_require__(2);
 const node_child_process_1 = __webpack_require__(3);
+const path = __webpack_require__(4);
+var dirName = __dirname?.split(path.sep);
+dirName.pop();
 const runJava = (0, node_child_process_1.spawn)('java', ['-jar',
     "--add-opens", "java.base/java.nio=ALL-UNNAMED",
     "--add-opens", "java.base/sun.nio.ch=ALL-UNNAMED",
     "--enable-preview",
-    '/home/alex/Programming/caches/extension/src/persistent-ide-caches.jar',
+    dirName.join(path.sep) + path.sep + "src" + path.sep + 'persistent-ide-caches.jar',
     vscode.workspace.workspaceFolders?.at(0)?.uri.path.toString() ?? "error",
 ]);
 const oldFiles = new Map();

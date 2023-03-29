@@ -3,15 +3,18 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { spawn } from 'node:child_process';
+import path = require('path');
 
-
+var dirName = __dirname?.split(path.sep)
+dirName.pop()
 const runJava = spawn('java', ['-jar',
 	"--add-opens", "java.base/java.nio=ALL-UNNAMED",
 	"--add-opens", "java.base/sun.nio.ch=ALL-UNNAMED",
 	"--enable-preview",
-	'/home/alex/Programming/caches/extension/src/persistent-ide-caches.jar',
+	dirName.join(path.sep) + path.sep + "src" + path.sep + 'persistent-ide-caches.jar',
 	vscode.workspace.workspaceFolders?.at(0)?.uri.path.toString() ?? "error",
-]);
+] );
+
 const oldFiles = new Map<string, string>();
 const newFiles = new Map<string, string>();
 
