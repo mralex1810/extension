@@ -10,6 +10,7 @@ const oldFiles = new Map<String, String>();
 const newFiles = new Map<String, String>();
 
 function pushEvents(events: object) {
+	console.log('changes');
 	console.log(JSON.stringify(events));
 
 	runJava.stdin.write(JSON.stringify(events) + '\r\n');
@@ -32,21 +33,31 @@ function pushEvents(events: object) {
 function getWebviewContent() {
 	return `<html>
 	<head>
-		<title>Alert Box</title>
-		<script type="text/javascript">
-		const vscode = acquireVsCodeApi();
-			function onClick() {
-				const text = document.getElementById('search').value;
-				vscode.postMessage({
-					command: 'search',
-					text: text
-				});
-			}
+	<title>Alert Box</title>
+	<script type="text/javascript">
+	const vscode = acquireVsCodeApi();
+	function onClick() {
+		const text = document.getElementById('search').value;
+		vscode.postMessage({
+			command: 'search',
+			text: text
+		});
+		}
+		function onCheckout() {
+			const hash = document.getElementById('hash').value;
+			vscode.postMessage({
+				command: 'checkout',
+				text: hash
+			});
+		}
 		</script>
 	</head>
 	<body>
-	<input type="text" id="search" /><br />
+	<input type="text" id="search" />
 	<input type="button" value="Click Here" onclick="onClick()" />
+	<br />
+	<input type="text" id="hash" />
+	<input type="button" value="Checkout" onclick="onCheckout()">
 	</body>
 	</html>
 	`;
@@ -71,9 +82,15 @@ export function activate(context: vscode.ExtensionContext) {
 	panel.webview.onDidReceiveMessage(message => {
 	  switch (message.command) {
 		case 'search':
+		  console.log('search');
 		  console.log(message.text);
 		  vscode.window.showErrorMessage(message.text);
 		  return;
+		case 'checkout':
+			console.log('checkout');
+			console.log(message.text);
+			vscode.window.showErrorMessage(message.text);
+			return;
 		}
 	  },
 	  undefined,
