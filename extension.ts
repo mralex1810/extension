@@ -9,6 +9,10 @@ const runJava = spawn('java', ['-cp', 'extension1/src', 'caches.SaveChanges', 'J
 const oldFiles = new Map<String, String>();
 const newFiles = new Map<String, String>();
 
+function writeStringToJava(str: String) {
+	runJava.stdin.write(str + '\r\n');
+}
+
 function pushEvents(events: object) {
 	console.log('changes');
 	console.log(JSON.stringify(events));
@@ -50,14 +54,24 @@ function getWebviewContent() {
 				text: hash
 			});
 		}
+		function onCamelCaseSearch() {
+			const text = document.getElementById('camel-case-search').value;
+			vscode.postMessage({
+				command: 'ccsearch',
+				text: text
+			});
+		}
 		</script>
 	</head>
 	<body>
 	<input type="text" id="search" />
-	<input type="button" value="Click Here" onclick="onClick()" />
+	<input type="button" value="Search" onclick="onClick()" />
 	<br />
 	<input type="text" id="hash" />
 	<input type="button" value="Checkout" onclick="onCheckout()">
+	<br />
+	<input type="text" id="camel-case-search">
+	<input type="button" value="Camel case search" onclick="onCamelCaseSearch()">
 	</body>
 	</html>
 	`;
@@ -84,13 +98,23 @@ export function activate(context: vscode.ExtensionContext) {
 		case 'search':
 		  console.log('search');
 		  console.log(message.text);
+		  writeStringToJava('search');
+		  writeStringToJava(message.text);
 		  vscode.window.showErrorMessage(message.text);
 		  return;
 		case 'checkout':
 			console.log('checkout');
 			console.log(message.text);
+			writeStringToJava('checkout');
+			writeStringToJava(message.text);
 			vscode.window.showErrorMessage(message.text);
 			return;
+		case 'ccsearch':
+			console.log('ccsearch');
+			console.log(message.text);
+			writeStringToJava('ccsearch');
+			writeStringToJava(message.text);
+			vscode.window.showErrorMessage(message.text);
 		}
 	  },
 	  undefined,
