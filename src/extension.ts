@@ -10,10 +10,10 @@ dirName.pop()
 const runJava = spawn('java', ['-jar',
 	"--add-opens", "java.base/java.nio=ALL-UNNAMED",
 	"--add-opens", "java.base/sun.nio.ch=ALL-UNNAMED",
-	"--enable-preview",
-	dirName.join(path.sep) + path.sep + "src" + path.sep + 'persistent-ide-caches.jar',
+	dirName.join(path.sep) + path.sep + "src" + path.sep + 'persistent-caches-1.0-SNAPSHOT-shaded.jar',
 	vscode.workspace.workspaceFolders?.at(0)?.uri.path.toString() ?? "error",
-] );
+	"without reparse"
+]);
 
 const oldFiles = new Map<string, string>();
 const newFiles = new Map<string, string>();
@@ -44,10 +44,10 @@ function getWebviewContent(req: string, text: string) {
 		<title>Alert Box</title>
 		<script type="text/javascript">
 		const vscode = acquireVsCodeApi();
-			function onClick() {
+			function onClick(com) {
 				const text = document.getElementById('search').value;
 				vscode.postMessage({
-					command: 'search',
+					command: com,
 					text: text
 				});
 			}
@@ -55,7 +55,9 @@ function getWebviewContent(req: string, text: string) {
 	</head>
 	<body>
 	<input type="text" id="search" style="font-size:50px"/><br />
-	<input type="button" value="Search" onclick="onClick()" style="font-size:50px" />
+	<input type="button" value="Trigram search" onclick="onClick('search')" style="font-size:25px" />
+	<input type="button" value="Checkout" onclick="onClick('checkout')" style="font-size:25px">
+	<input type="button" value="Camel case search" onclick="onClick('ccsearch')" style="font-size:25px">
 	</body>
 	<body>
 	<p style="font-size:50px">${req}</p>
@@ -78,14 +80,45 @@ export function activate(context: vscode.ExtensionContext) {
 
 	);
 
-	panel.webview.html = getWebviewContent("", "");
+	panel.webview.html = getWebviewContent("", "",);
 
 	panel.webview.onDidReceiveMessage(message => {
 		switch (message.command) {
 			case 'search':
 				runJava.stdout.once('data', (data: string) =>
-					panel.webview.html = getWebviewContent("Results for \"" + message.text + "\"", data.slice(1, -2)));
+					panel.webview.html = getWebviewContent("Results for \"" + message.text + "\"",
+						"<ul>"
+						+
+						data.toString().trim().split("\n").map((it: string) => "<li>" + it + "</li>").join("\n")
+						+
+						"</ul>"
+					)
+				);
 				runJava.stdin.write("search\n" + message.text);
+				console.log('search');
+				console.log(message.text);
+				return;
+			case 'checkout':
+				runJava.stdout.once('data', (data: string) =>
+					panel.webview.html = getWebviewContent("checkout to " + message.text, data,)
+				);
+				runJava.stdin.write("checkout\n" + message.text);
+				console.log('checkout');
+				console.log(message.text);
+				return;
+			case 'ccsearch':
+				runJava.stdout.once('data', (data: string) =>
+					panel.webview.html = getWebviewContent("Results for Camel Case Search \"" + message.text + "\"",
+						"<ol style=\"font-size:30px\">"
+						+
+						data.toString().trim().split("\n").map((it: string) => "<li>" + it + "</li>").join("\n")
+						+
+						"</ol>"
+					)
+				);
+				runJava.stdin.write("ccsearch\n" + message.text);
+				console.log('ccsearch');
+				console.log(message.text);
 				return;
 		}
 	},
