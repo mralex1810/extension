@@ -4,6 +4,8 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { spawn } from 'node:child_process';
 import path = require('path');
+import { assert, time } from 'console';
+import { Interface } from 'readline';
 
 var dirName = __dirname?.split(path.sep)
 dirName.pop()
@@ -12,9 +14,21 @@ const runJava = spawn('java', ['-jar',
 	"--add-opens", "java.base/sun.nio.ch=ALL-UNNAMED",
 	dirName.join(path.sep) + path.sep + "src" + path.sep + 'persistent-caches-1.0-SNAPSHOT-shaded.jar',
 	vscode.workspace.workspaceFolders?.at(0)?.uri.path.toString() ?? "error",
-	"without reparse"
+	// "without reparse"
 ]);
 
+enum Operation {
+	trigramSearch,
+	ccSearch,
+}
+
+interface OpReq {
+	operation: Operation
+	request: string
+	start: number
+}
+
+var currentOperation: OpReq | null = null;
 const oldFiles = new Map<string, string>();
 const newFiles = new Map<string, string>();
 
@@ -38,7 +52,7 @@ function pushEvents(events: object) {
 }
 
 
-function getWebviewContent(req: string, text: string) {
+function getWebviewContent(req: string, text: string, time: string) {
 	return `<html>
 	<head>
 		<title>Alert Box</title>
@@ -60,14 +74,67 @@ function getWebviewContent(req: string, text: string) {
 	<input type="button" value="Camel case search" onclick="onClick('ccsearch')" style="font-size:25px">
 	</body>
 	<body>
+	<input type="button" value="Previous 10" onclick="onClick('prev')" style="font-size:25px">
+	<input type="button" value="Next 10" onclick="onClick('next')" style="font-size:25px">
+	</body>
+	<body>
 	<p style="font-size:50px">${req}</p>
+	<p style="font-size:50px">${time}</p>
 	<p style="font-size:50px">${text}</p>
 	</body>
+
 	</html>
 	`;
 }
 
 
+function processTrigramSearch(panel: vscode.WebviewPanel, data: string) {
+	var variables = data.toString().trim().split("\n");
+	var total = variables[0];
+	var time = variables[1];
+	var rest = variables.slice(2);
+	if (currentOperation == null) {
+		throw new Error("must have operation");
+	}
+	panel.webview.html = getWebviewContent(
+		`Results for \"${currentOperation.request}\"
+		found ${total}`,
+		`<ol start="${currentOperation.start + 1}">`
+		+
+		rest.map((it: string) => "<li>" + it + "</li>").join("\n")
+		+
+		"</ol>", "execution time " + time + " ms"
+	)
+}
+
+function processRequest(panel: vscode.WebviewPanel, data: string) {
+	if (currentOperation?.operation == Operation.ccSearch) 
+		processCcSearch(panel, data)
+	if (currentOperation?.operation == Operation.trigramSearch) 
+		processTrigramSearch(panel, data)
+}
+
+function processCcSearch(panel: vscode.WebviewPanel, data: string) {
+	var variables = data.toString().trim().split("\n");
+	var total = variables[0];
+	var time = variables[1];
+	var rest = variables.slice(2);
+	if (currentOperation == null) {
+		throw new Error("must have operation");
+	}
+	panel.webview.html = getWebviewContent(
+		`Results for \"${currentOperation.request}\"
+		found ${total}`,
+		`<ol start="${currentOperation.request + 1}">`
+		+
+		rest.map((it: string) => "<li>" + it + "</li>").join("\n")
+		+
+		"</ol>", "execution time " + time
+	)
+}
+
+
+const BUCKET_SIZE = 10;
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
@@ -80,46 +147,50 @@ export function activate(context: vscode.ExtensionContext) {
 
 	);
 
-	panel.webview.html = getWebviewContent("", "",);
+	panel.webview.html = getWebviewContent("", "", "");
 
 	panel.webview.onDidReceiveMessage(message => {
 		switch (message.command) {
 			case 'search':
-				runJava.stdout.once('data', (data: string) =>
-					panel.webview.html = getWebviewContent("Results for \"" + message.text + "\"",
-						"<ul>"
-						+
-						data.toString().trim().split("\n").map((it: string) => "<li>" + it + "</li>").join("\n")
-						+
-						"</ul>"
-					)
-				);
+				currentOperation = { operation: Operation.trigramSearch, request: message.text, start:0 }
+				runJava.stdout.once('data', (data: string) => processRequest(panel, data));
 				runJava.stdin.write("search\n" + message.text);
 				console.log('search');
 				console.log(message.text);
 				return;
 			case 'checkout':
 				runJava.stdout.once('data', (data: string) =>
-					panel.webview.html = getWebviewContent("checkout to " + message.text, data,)
+					panel.webview.html = getWebviewContent("checkout to " + message.text, "", "time " + data)
 				);
 				runJava.stdin.write("checkout\n" + message.text);
 				console.log('checkout');
 				console.log(message.text);
 				return;
 			case 'ccsearch':
-				runJava.stdout.once('data', (data: string) =>
-					panel.webview.html = getWebviewContent("Results for Camel Case Search \"" + message.text + "\"",
-						"<ol style=\"font-size:30px\">"
-						+
-						data.toString().trim().split("\n").map((it: string) => "<li>" + it + "</li>").join("\n")
-						+
-						"</ol>"
-					)
-				);
+				currentOperation = { operation: Operation.ccSearch, request: 0 }
+				runJava.stdout.once('data', (data: string) => processRequest(panel, data));
 				runJava.stdin.write("ccsearch\n" + message.text);
 				console.log('ccsearch');
 				console.log(message.text);
 				return;
+			case 'next':
+				if (currentOperation == null) {
+					throw new Error("must have operation");
+				}
+				currentOperation.start += BUCKET_SIZE
+				runJava.stdout.once('data', (data: string) => processRequest(panel, data));
+				runJava.stdin.write("next\n");
+				console.log('next');
+				return;
+			case 'prev':
+				if (currentOperation == null) {
+					throw new Error("must have operation");
+				}
+				currentOperation.start -= BUCKET_SIZE
+				runJava.stdout.once('data', (data: string) => processRequest(panel, data));
+				runJava.stdin.write("prev\n");
+				console.log('prev');
+				return
 		}
 	},
 		undefined,
