@@ -4,16 +4,15 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { spawn } from 'node:child_process';
 import path = require('path');
-import { assert, time } from 'console';
-import { Interface } from 'readline';
 
 var dirName = __dirname?.split(path.sep)
 dirName.pop()
+var workspaceFolder = vscode.workspace.workspaceFolders?.at(0)?.uri.path.toString() ?? "error";
 const runJava = spawn('java', ['-jar',
 	"--add-opens", "java.base/java.nio=ALL-UNNAMED",
 	"--add-opens", "java.base/sun.nio.ch=ALL-UNNAMED",
 	dirName.join(path.sep) + path.sep + "src" + path.sep + 'persistent-caches-1.0-SNAPSHOT-shaded.jar',
-	vscode.workspace.workspaceFolders?.at(0)?.uri.path.toString() ?? "error",
+	workspaceFolder,
 	// "without reparse"
 ]);
 
@@ -52,7 +51,7 @@ function pushEvents(events: object) {
 }
 
 
-function getWebviewContent(req: string, text: string, time: string) {
+function getWebviewContent(req: string, text: string, time: string, prevNext: boolean) {
 	return `<html>
 	<head>
 		<title>Alert Box</title>
@@ -65,6 +64,14 @@ function getWebviewContent(req: string, text: string, time: string) {
 					text: text
 				});
 			}
+
+			function openFile(uri) {
+				vscode.postMessage({
+					command: 'open',
+					text: uri
+				});
+			}
+			
 		</script>
 	</head>
 	<body>
@@ -74,46 +81,67 @@ function getWebviewContent(req: string, text: string, time: string) {
 	<input type="button" value="Camel case search" onclick="onClick('ccsearch')" style="font-size:25px">
 	</body>
 	<body>
+	<p style="font-size:25px">${req}</p>
+	<p style="font-size:25px">${time}</p>
+	<p style="font-size:25px">${text}</p>
+	</body>
+	${prevNext ? `<br>
+	<body>
 	<input type="button" value="Previous 10" onclick="onClick('prev')" style="font-size:25px">
 	<input type="button" value="Next 10" onclick="onClick('next')" style="font-size:25px">
-	</body>
-	<body>
-	<p style="font-size:50px">${req}</p>
-	<p style="font-size:50px">${time}</p>
-	<p style="font-size:50px">${text}</p>
-	</body>
-
+	</body>`: ""}
 	</html>
 	`;
 }
 
+function fileToHref(filePath: string, name: string | null) {
+	const fileName = name != null ? name : path.basename(filePath);
+	var thisPath = workspaceFolder.trim() + path.sep + filePath.trim()
+	return `<a href="${filePath}" onclick="openFile('${thisPath}')">${fileName}</a>`
+}
 
-function processTrigramSearch(panel: vscode.WebviewPanel, data: string) {
-	var variables = data.toString().trim().split("\n");
-	var total = variables[0];
-	var time = variables[1];
-	var rest = variables.slice(2);
+
+
+
+function showNew(panel: vscode.WebviewPanel, list: string, total: string, time: string) {
 	if (currentOperation == null) {
 		throw new Error("must have operation");
 	}
 	panel.webview.html = getWebviewContent(
 		`Results for \"${currentOperation.request}\"
 		found ${total}`,
-		`<ol start="${currentOperation.start + 1}">`
+		`<ol start="${currentOperation.start + 1}" style="font-size:25px">`
 		+
-		rest.map((it: string) => "<li>" + it + "</li>").join("\n")
+		list
 		+
-		"</ol>", "execution time " + time + " ms"
+		"</ol>", "execution time " + time + " ms", parseInt(total) > 10
 	)
 }
 
 function processRequest(panel: vscode.WebviewPanel, data: string) {
-	if (currentOperation?.operation == Operation.ccSearch) 
+	if (currentOperation?.operation == Operation.ccSearch) {
 		processCcSearch(panel, data)
-	if (currentOperation?.operation == Operation.trigramSearch) 
+
+	}
+	if (currentOperation?.operation == Operation.trigramSearch) {
 		processTrigramSearch(panel, data)
+	}
 }
 
+function processTrigramSearch(panel: vscode.WebviewPanel, data: string) {
+	var variables = data.toString().trim().split("\n");
+	var total = variables[0];
+	var time = variables[1];
+	var rest = variables.slice(2);
+	var list = rest.map(it => fileToHref(it, null)).map((it: string) => "<li>" + it + "</li>").join("\n")
+	// console.log(list)
+	showNew(panel, list, total, time)
+	// vscode.commands.executeCommand(
+	// `extension.openFile`, "abacaba")
+
+}
+
+const toListElement = (it: string) => "<li>" + it + "</li>";
 function processCcSearch(panel: vscode.WebviewPanel, data: string) {
 	var variables = data.toString().trim().split("\n");
 	var total = variables[0];
@@ -122,17 +150,34 @@ function processCcSearch(panel: vscode.WebviewPanel, data: string) {
 	if (currentOperation == null) {
 		throw new Error("must have operation");
 	}
-	panel.webview.html = getWebviewContent(
-		`Results for \"${currentOperation.request}\"
-		found ${total}`,
-		`<ol start="${currentOperation.request + 1}">`
-		+
-		rest.map((it: string) => "<li>" + it + "</li>").join("\n")
-		+
-		"</ol>", "execution time " + time
-	)
+	var list = rest
+		.map(it => it.split(" "))
+		.map(it => [colorCcResult(it[0], it.slice(2).map(i => parseInt(i))), it[1]])
+		.map(it => fileToHref(it[1], it[0]))
+		.map(toListElement)
+		.join("\n")
+	showNew(panel, list, total, time)
 }
 
+function colorCcResult(name: string, indexes: number[]): string {
+	var res = ""
+	for (var i = 0; i < name.length; i++) {
+		if (indexes.find(it => it === i) !== undefined) {
+			res += `<span style="background-color: yellow;">${name[i]}</span>`
+		} else {
+			res += name[i];
+		}
+	}
+	return res
+}
+
+
+
+function openFile(uri: string) {
+	// Open the file when the command is triggered
+	vscode.workspace.openTextDocument(uri)
+		.then(vscode.window.showTextDocument);
+}
 
 const BUCKET_SIZE = 10;
 // This method is called when your extension is activated
@@ -147,12 +192,16 @@ export function activate(context: vscode.ExtensionContext) {
 
 	);
 
-	panel.webview.html = getWebviewContent("", "", "");
+	panel.webview.html = getWebviewContent("", "", "", false);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand("extension.openFile", openFile)
+	);
 
 	panel.webview.onDidReceiveMessage(message => {
 		switch (message.command) {
 			case 'search':
-				currentOperation = { operation: Operation.trigramSearch, request: message.text, start:0 }
+				currentOperation = { operation: Operation.trigramSearch, request: message.text, start: 0 }
 				runJava.stdout.once('data', (data: string) => processRequest(panel, data));
 				runJava.stdin.write("search\n" + message.text);
 				console.log('search');
@@ -160,14 +209,14 @@ export function activate(context: vscode.ExtensionContext) {
 				return;
 			case 'checkout':
 				runJava.stdout.once('data', (data: string) =>
-					panel.webview.html = getWebviewContent("checkout to " + message.text, "", "time " + data)
+					panel.webview.html = getWebviewContent("checkout to " + message.text, "", "execution time " + data + " ms", false)
 				);
 				runJava.stdin.write("checkout\n" + message.text);
 				console.log('checkout');
 				console.log(message.text);
 				return;
 			case 'ccsearch':
-				currentOperation = { operation: Operation.ccSearch, request: 0 }
+				currentOperation = { operation: Operation.ccSearch, request: message.text, start: 0 }
 				runJava.stdout.once('data', (data: string) => processRequest(panel, data));
 				runJava.stdin.write("ccsearch\n" + message.text);
 				console.log('ccsearch');
@@ -191,11 +240,16 @@ export function activate(context: vscode.ExtensionContext) {
 				runJava.stdin.write("prev\n");
 				console.log('prev');
 				return
+			case 'open':
+				openFile(message.text)
 		}
 	},
 		undefined,
 		context.subscriptions
 	);
+
+	// Register the command to open the file
+
 
 	const workspace = vscode.workspace;
 	console.log(workspace);
@@ -271,3 +325,4 @@ let disposable = vscode.commands.registerCommand('extension1.startSearch', () =>
 // This method is called when your extension is deactivated
 export function deactivate() {
 }
+

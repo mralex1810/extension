@@ -18,6 +18,10 @@
       {
         "command": "extension1.startSearch",
         "title": "Start search"
+      },
+      {
+        "command": "extension.openFile",
+        "title": "Open File"
       }
     ]
   },
