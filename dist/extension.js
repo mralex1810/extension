@@ -68,13 +68,23 @@ const node_child_process_1 = __webpack_require__(3);
 const path = __webpack_require__(4);
 var dirName = __dirname?.split(path.sep);
 dirName.pop();
+var workspaceFolder = vscode.workspace.workspaceFolders?.at(0)?.uri.path.toString() ?? "error";
 const runJava = (0, node_child_process_1.spawn)('java', ['-jar',
     "--add-opens", "java.base/java.nio=ALL-UNNAMED",
     "--add-opens", "java.base/sun.nio.ch=ALL-UNNAMED",
     dirName.join(path.sep) + path.sep + "src" + path.sep + 'persistent-caches-1.0-SNAPSHOT-shaded.jar',
-    vscode.workspace.workspaceFolders?.at(0)?.uri.path.toString() ?? "error",
-    "without reparse"
+    workspaceFolder,
+    "true",
+    "parseHead",
+    "true",
+    "true", // enable camel case index
 ]);
+var Operation;
+(function (Operation) {
+    Operation[Operation["trigramSearch"] = 0] = "trigramSearch";
+    Operation[Operation["ccSearch"] = 1] = "ccSearch";
+})(Operation || (Operation = {}));
+var currentOperation = null;
 const oldFiles = new Map();
 const newFiles = new Map();
 // runJava.stdout.on('data', (data: string) => {
@@ -90,7 +100,7 @@ function pushEvents(events) {
     console.log(JSON.stringify(events));
     runJava.stdin.write("changes\n" + JSON.stringify(events));
 }
-function getWebviewContent(req, text) {
+function getWebviewContent(req, text, time, prevNext) {
     return `<html>
 	<head>
 		<title>Alert Box</title>
@@ -103,6 +113,14 @@ function getWebviewContent(req, text) {
 					text: text
 				});
 			}
+
+			function openFile(uri) {
+				vscode.postMessage({
+					command: 'open',
+					text: uri
+				});
+			}
+			
 		</script>
 	</head>
 	<body>
@@ -112,12 +130,88 @@ function getWebviewContent(req, text) {
 	<input type="button" value="Camel case search" onclick="onClick('ccsearch')" style="font-size:25px">
 	</body>
 	<body>
-	<p style="font-size:50px">${req}</p>
-	<p style="font-size:50px">${text}</p>
+	<p style="font-size:25px">${req}</p>
+	<p style="font-size:25px">${time}</p>
+	<p style="font-size:25px">${text}</p>
 	</body>
+	${prevNext ? `<br>
+	<body>
+	<input type="button" value="Previous 10" onclick="onClick('prev')" style="font-size:25px">
+	<input type="button" value="Next 10" onclick="onClick('next')" style="font-size:25px">
+	</body>` : ""}
 	</html>
 	`;
 }
+function fileToHref(filePath, name) {
+    const fileName = name != null ? name : path.basename(filePath);
+    var thisPath = workspaceFolder.trim() + path.sep + filePath.trim();
+    return `<a href="${filePath}" onclick="openFile('${thisPath}')">${fileName}</a>`;
+}
+function showNew(panel, list, total, time) {
+    if (currentOperation == null) {
+        throw new Error("must have operation");
+    }
+    panel.webview.html = getWebviewContent(`Results for \"${currentOperation.request}\"
+		found ${total}`, `<ol start="${currentOperation.start + 1}" style="font-size:25px">`
+        +
+            list
+        +
+            "</ol>", "execution time " + time + " ms", parseInt(total) > 10);
+}
+function processRequest(panel, data) {
+    if (currentOperation?.operation == Operation.ccSearch) {
+        processCcSearch(panel, data);
+    }
+    if (currentOperation?.operation == Operation.trigramSearch) {
+        processTrigramSearch(panel, data);
+    }
+}
+function processTrigramSearch(panel, data) {
+    var variables = data.toString().trim().split("\n");
+    var total = variables[0];
+    var time = variables[1];
+    var rest = variables.slice(2);
+    var list = rest.map(it => fileToHref(it, null)).map((it) => "<li>" + it + "</li>").join("\n");
+    // console.log(list)
+    showNew(panel, list, total, time);
+    // vscode.commands.executeCommand(
+    // `extension.openFile`, "abacaba")
+}
+const toListElement = (it) => "<li>" + it + "</li>";
+function processCcSearch(panel, data) {
+    var variables = data.toString().trim().split("\n");
+    var total = variables[0];
+    var time = variables[1];
+    var rest = variables.slice(2);
+    if (currentOperation == null) {
+        throw new Error("must have operation");
+    }
+    var list = rest
+        .map(it => it.split(" "))
+        .map(it => [colorCcResult(it[0], it.slice(2).map(i => parseInt(i))), it[1]])
+        .map(it => fileToHref(it[1], it[0]))
+        .map(toListElement)
+        .join("\n");
+    showNew(panel, list, total, time);
+}
+function colorCcResult(name, indexes) {
+    var res = "";
+    for (var i = 0; i < name.length; i++) {
+        if (indexes.find(it => it === i) !== undefined) {
+            res += `<span style="background-color: yellow;">${name[i]}</span>`;
+        }
+        else {
+            res += name[i];
+        }
+    }
+    return res;
+}
+function openFile(uri) {
+    // Open the file when the command is triggered
+    vscode.workspace.openTextDocument(uri)
+        .then(vscode.window.showTextDocument);
+}
+const BUCKET_SIZE = 10;
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 function activate(context) {
@@ -126,37 +220,53 @@ function activate(context) {
     vscode.ViewColumn.Two, // Editor column to show the new webview panel in.
     { enableScripts: true } // Webview options. More on these later.
     );
-    panel.webview.html = getWebviewContent("", "");
+    panel.webview.html = getWebviewContent("", "", "", false);
+    context.subscriptions.push(vscode.commands.registerCommand("extension.openFile", openFile));
     panel.webview.onDidReceiveMessage(message => {
         switch (message.command) {
             case 'search':
-                runJava.stdout.once('data', (data) => panel.webview.html = getWebviewContent("Results for \"" + message.text + "\"", "<ul>"
-                    +
-                        data.toString().trim().split("\n").map((it) => "<li>" + it + "</li>").join("\n")
-                    +
-                        "</ul>"));
+                currentOperation = { operation: Operation.trigramSearch, request: message.text, start: 0 };
+                runJava.stdout.once('data', (data) => processRequest(panel, data));
                 runJava.stdin.write("search\n" + message.text);
                 console.log('search');
                 console.log(message.text);
                 return;
             case 'checkout':
-                runJava.stdout.once('data', (data) => panel.webview.html = getWebviewContent("checkout to " + message.text, data));
+                runJava.stdout.once('data', (data) => panel.webview.html = getWebviewContent("checkout to " + message.text, "", "execution time " + data + " ms", false));
                 runJava.stdin.write("checkout\n" + message.text);
                 console.log('checkout');
                 console.log(message.text);
                 return;
             case 'ccsearch':
-                runJava.stdout.once('data', (data) => panel.webview.html = getWebviewContent("Results for Camel Case Search \"" + message.text + "\"", "<ol style=\"font-size:30px\">"
-                    +
-                        data.toString().trim().split("\n").map((it) => "<li>" + it + "</li>").join("\n")
-                    +
-                        "</ol>"));
+                currentOperation = { operation: Operation.ccSearch, request: message.text, start: 0 };
+                runJava.stdout.once('data', (data) => processRequest(panel, data));
                 runJava.stdin.write("ccsearch\n" + message.text);
                 console.log('ccsearch');
                 console.log(message.text);
                 return;
+            case 'next':
+                if (currentOperation == null) {
+                    throw new Error("must have operation");
+                }
+                currentOperation.start += BUCKET_SIZE;
+                runJava.stdout.once('data', (data) => processRequest(panel, data));
+                runJava.stdin.write("next\n");
+                console.log('next');
+                return;
+            case 'prev':
+                if (currentOperation == null) {
+                    throw new Error("must have operation");
+                }
+                currentOperation.start -= BUCKET_SIZE;
+                runJava.stdout.once('data', (data) => processRequest(panel, data));
+                runJava.stdin.write("prev\n");
+                console.log('prev');
+                return;
+            case 'open':
+                openFile(message.text);
         }
     }, undefined, context.subscriptions);
+    // Register the command to open the file
     const workspace = vscode.workspace;
     console.log(workspace);
     if (workspace !== undefined) {

@@ -13,7 +13,10 @@ const runJava = spawn('java', ['-jar',
 	"--add-opens", "java.base/sun.nio.ch=ALL-UNNAMED",
 	dirName.join(path.sep) + path.sep + "src" + path.sep + 'persistent-caches-1.0-SNAPSHOT-shaded.jar',
 	workspaceFolder,
-	// "without reparse"
+	"true", // reset db
+	"parseHead", // parseHead
+	"true", // enable trigram index
+	"true", // enable camel case index
 ]);
 
 enum Operation {
